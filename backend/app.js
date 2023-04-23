@@ -1,48 +1,42 @@
 const express = require('express');
+const http = require('http');
+const socketIO = require('socket.io');
 const cors = require('cors');
-const GameSession = require('models/GameSession');
-const TriviaAPI = require('./TriviaAPI');
+const gameRouter = require('./routes/game');
 
 const app = express();
-app.use(cors());
+const server = http.createServer(app);
+const io = socketIO(server);
+
+// Middleware
 app.use(express.json());
+app.use(cors());
 
-const sessions = new Map();
+// Socket.io setup
+io.on('connection', (socket) => {
+  console.log('A user connected');
 
-// Create a new game session
-app.post('/api/sessions', async (req, res) => {
-  try {
-    const { gameId, hostId, numQuestions } = req.body;
-    const trivia = new TriviaAPI();
-    const questions = await trivia.getQuestions(gameId, numQuestions);
-    const session = new GameSession(gameId, hostId);
-    session.createSession(hostId, questions);
-    sessions.set(gameId, session);
-    res.status(200).json({ gameId });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to create session' });
-  }
+  // Join game room
+  socket.on('joinRoom', (gameId) => {
+    socket.join(gameId);
+    console.log(`User joined game room: ${gameId}`);
+  });
+
+  // Leave game room
+  socket.on('leaveRoom', (gameId) => {
+    socket.leave(gameId);
+    console.log(`User left game room: ${gameId}`);
+  });
+
+  // Handle game events
+  gameRouter.handleGameEvents(socket, io);
 });
 
-// Join an existing game session
-app.post('/api/sessions/:gameId/join', (req, res) => {
-  try {
-    const { gameId } = req.params;
-    const { playerId } = req.body;
-    const session = sessions.get(gameId);
-    if (session) {
-      session.joinSession(playerId);
-      res.status(200).json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Session not found' });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to join session' });
-  }
-});
+// Routes
+app.use('/api/game', gameRouter);
 
-app.listen(3000, () => {
-  console.log('Server listening on port 3000');
+// Start server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
